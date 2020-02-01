@@ -23,35 +23,36 @@ function [options]=setOptions(input)
     p = inputParser;
     p.CaseSensitive = false;
     % Helper functions for input parser
-    checkEmpetyOrChar = @(x) (isempty(x) || ischar(x));
-    checkEmptyOrNumericPositive = @(x) (isempty(x) || (isnumeric(x) && all(x > 0)));
-    checkNumericPositive = @(x) ((isnumeric(x) && all(x > 0)));
+    checkEmpetyOrChar = @(x)(isempty(x) || ischar(x));
+    checkEmptyOrNumericPositive = @(x)(isempty(x) || ((isnumeric(x) || isscalar(x)) && all(x > 0)));
+    checkScalarNumPos = @(x)(isnumeric(x) || isscalar(x)) && (x > 0);
+    checkScalarNum = @(x)(isnumeric(x) || isscalar(x));
 
     % Curve settings
-    p.addRequired('startpos', @(x) isnumeric(x));
-    p.addRequired('nCurves', @(x) checkNumericPositive(x));
+    
+    p.addRequired('nCurves',checkScalarNumPos);
+    p.addRequired('curveOrder',checkScalarNumPos);
+    p.addRequired('startpos',checkScalarNum);
+    p.addParameter('endpos',[], @(x)checkScalarNum(x));
    
-    p.addRequired('curveOrder',  @(x) checkNumericPositive(x));
-    p.addParameter('endpos',[], @(x) isnumeric(x));
-   
-    p.addParameter('curveContinuity',2,  @(x) checkNumericPositive(x));
-    p.addParameter('floating',false,  @(x) islogical(x));
-    p.addParameter('beta',100,  @(x) checkNumericPositive(x));
+    p.addParameter('curveContinuity',2,  @(x)checkScalarNumPos(x));
+    p.addParameter('floating',false,  @(x)islogical(x));
+    p.addParameter('beta',100,  @(x)checkScalarNumPos(x));
 
     % General settings
-    p.addParameter('display','off',  @(x) checkEmpetyOrChar(x));
-    p.addParameter('plot',false,  @(x) islogical(x));
+    p.addParameter('display','off',  @(x)checkEmpetyOrChar(x));
+    p.addParameter('plot',false,  @(x)islogical(x));
     
     % Additional constraints
-    p.addParameter('c0',[],  @(x) checkEmptyOrNumericPositive(x));
-    p.addParameter('c1',[],  @(x) checkEmptyOrNumericPositive(x));
-    p.addParameter('pointlb',[],  @(x) checkEmptyOrNumericPositive(x));
-    p.addParameter('pointub',[],  @(x) checkEmptyOrNumericPositive(x));
-    p.addParameter('kappa',[],  @(x) checkEmptyOrNumericPositive(x));
+    p.addParameter('c0',[],  @(x)checkEmptyOrNumericPositive(x));
+    p.addParameter('c1',[],  @(x)checkEmptyOrNumericPositive(x));
+    p.addParameter('pointlb',[],  @(x)checkEmptyOrNumericPositive(x));
+    p.addParameter('pointub',[],  @(x)checkEmptyOrNumericPositive(x));
+    p.addParameter('kappa',[],  @(x)checkEmptyOrNumericPositive(x));
 
     % Solver settings
-    p.addParameter('method','bound',  @(x) checkEmpetyOrChar(x));
-    p.addParameter('solver','fminslp',  @(x) checkEmpetyOrChar(x));
+    p.addParameter('method','bound',  @(x)checkEmpetyOrChar(x));
+    p.addParameter('solver','fminslp',  @(x)checkEmpetyOrChar(x));
 
     % pars input
     if nargin < 1 || isempty(input)
