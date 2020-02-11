@@ -1,4 +1,4 @@
-function [fhandle,exitflag,message] = curvefit(points,varargin)
+function [fhandle,exitflag,message] = curvefit(points,nCurves,curveOrder,startpos,varargin)
     % Help for curvefit function
     % Inputs: points (nP,2) [y,x]
     % Options
@@ -18,11 +18,11 @@ function [fhandle,exitflag,message] = curvefit(points,varargin)
         return
     end
 
-    options = setOptions(varargin);
+    options = setOptions(nCurves,curveOrder,startpos,varargin);
     prob = problemformulation(points,options);
 end
 
-function [options]=setOptions(input)
+function [options]=setOptions(nCurves,curveOrder,startpos,input)
     % Here you can add new options if needed
     p = inputParser;
     p.CaseSensitive = false;
@@ -33,13 +33,16 @@ function [options]=setOptions(input)
     checkScalarNum = @(x)(isnumeric(x) || isscalar(x));
     checkEmptyOrScalarNum = @(x)(isempty(x) || isnumeric(x) || isscalar(x));
 
-    % Curve settings
+    % Settings specifying the curve(s)
     
+    % The order of the required inputs matter
     p.addRequired('nCurves',checkScalarNumPos);
     p.addRequired('curveOrder',checkScalarNumPos);
     p.addRequired('startpos',checkScalarNum);
+    % 
     p.addParameter('endpos',[], @(x)checkEmptyOrScalarNum(x));
     p.addParameter('curveContinuity',2,  @(x)checkScalarNumPos(x));
+    
     % Settings for floating curve intersection points
     p.addParameter('floating',false,  @(x)islogical(x));
     p.addParameter('beta',100,  @(x)checkScalarNumPos(x));
@@ -60,10 +63,10 @@ function [options]=setOptions(input)
     p.addParameter('solver','fminslp',  @(x)checkEmpetyOrChar(x));
 
     % pars input
-    if nargin < 1 || isempty(input)
-        parse(p);
+    if nargin < 4 || isempty(input)
+        parse(p,nCurves,curveOrder,startpos);
     else
-        parse(p,input{:});
+        parse(p,nCurves,curveOrder,startpos,input{:});
     end
 
     % Output results to options structure
@@ -78,7 +81,7 @@ function [prob,exitflag,message] = problemformulation(points,options)
     prob.nP = size(points,1);
     
     % Determine how the user has specified the problem
-    if numel(options.startpos) = 1
+    if numel(options.startpos) == 1
         % distribute start positions for the curves between the specified start and end position
         if isempty(options.endpos)
             options.endpos = max(prob.points(:,2));
