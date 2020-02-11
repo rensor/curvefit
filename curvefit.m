@@ -1,6 +1,8 @@
-function [fhandle,exitflag,message] = curvefit(points,nCurves,curveOrder,startpos,varargin)
+function [fhandle,exitflag,message] = curvefit(points,nCurves,curveOrder,varargin)
     % Help for curvefit function
-    % Inputs: points (nP,2) [y,x]
+    % Inputs: points (nP,2) [y,x], point to fit with curve
+    %       : nCurves, number of curves 
+    %       : curveOrder, curve polynomial order
     % Options
     %
     % Outputs
@@ -12,13 +14,13 @@ function [fhandle,exitflag,message] = curvefit(points,nCurves,curveOrder,startpo
 
     % check points structure
     if  size(points,2) ~= 2
-        exitflag = 0;
-        message = sprintf('curvefit: input points needs to be a nP x 2 array. Number of columns for input is %3i', size(points,2));
-        fhandle = [];
-        return
+    exitflag = 0;
+    message = sprintf('curvefit: input points needs to be a nP x 2 array. Number of columns for input is %3i', size(points,2));
+    fhandle = [];
+    return
     end
 
-    options = setOptions(nCurves,curveOrder,startpos,varargin);
+    options = setOptions(nCurves,curveOrder,varargin);
     prob = problemformulation(points,options);
 end
 
@@ -34,15 +36,15 @@ function [options]=setOptions(nCurves,curveOrder,startpos,input)
     checkEmptyOrScalarNum = @(x)(isempty(x) || isnumeric(x) || isscalar(x));
 
     % Settings specifying the curve(s)
-    
+
     % The order of the required inputs matter
     p.addRequired('nCurves',checkScalarNumPos);
     p.addRequired('curveOrder',checkScalarNumPos);
-    p.addRequired('startpos',checkScalarNum);
     % 
+    p.addParameter('startpos',[],checkEmptyOrScalarNum);
     p.addParameter('endpos',[], @(x)checkEmptyOrScalarNum(x));
     p.addParameter('curveContinuity',2,  @(x)checkScalarNumPos(x));
-    
+
     % Settings for floating curve intersection points
     p.addParameter('floating',false,  @(x)islogical(x));
     p.addParameter('beta',100,  @(x)checkScalarNumPos(x));
@@ -50,7 +52,7 @@ function [options]=setOptions(nCurves,curveOrder,startpos,input)
     % General settings
     p.addParameter('display','off',  @(x)checkEmpetyOrChar(x));
     p.addParameter('plot',false,  @(x)islogical(x));
-    
+
     % Additional constraints
     p.addParameter('c0',[],  @(x)checkEmptyOrScalarNum(x));
     p.addParameter('c1',[],  @(x)checkEmptyOrScalarNum(x));
@@ -66,7 +68,7 @@ function [options]=setOptions(nCurves,curveOrder,startpos,input)
     if nargin < 4 || isempty(input)
         parse(p,nCurves,curveOrder,startpos);
     else
-        parse(p,nCurves,curveOrder,startpos,input{:});
+        parse(p,nCurves,curveOrder,input{:});
     end
 
     % Output results to options structure
@@ -81,6 +83,10 @@ function [prob,exitflag,message] = problemformulation(points,options)
     prob.nP = size(points,1);
     
     % Determine how the user has specified the problem
+    if isempty(options.startpos)
+        options.startpos = min((prob.points(:,2));
+    end
+
     if numel(options.startpos) == 1
         % distribute start positions for the curves between the specified start and end position
         if isempty(options.endpos)
