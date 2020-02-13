@@ -128,23 +128,27 @@ function [prob,exitflag,message] = problemformulation(points,options)
     
 end
 
-function [c,ceq,dc,dceq] = evaluateNonLinearConstraints(xval,prob)
+function [c,ceq,dc,dceq] = getNonLinearConstraints(xval,prob)
 
 end
 
-function [fval,df] = evaluateObjectiveFunction(xval,prob)
+function [fval,df] = getObjectiveFunction(xval,prob)
 
 end
 
-function [f,df] = HS(xs,ps,beta)
+function [pwf,dpwf] = getPointWeightsForCurveInterval(pointPos,startpos,endpos) 
+
+end
+
+function [wf,dwf] = HS(xs,ps,beta)
     % Unit step function / projection filter
     % xs is the normalized design variable associated with either a start or end position of a curve.
     % ps is the normalized position of a point which we try to fit the curve to. 
     % beta is a slope parameter for this particular unit step approximation. 
     % The formulation is based on Wang,  F.,  Lazarov,  B.,  and  Sigmund,  O 2011 and Soerensen, R, and Lund, E 2015
-      f = (tanh(beta*xs)+tanh(beta*(ps-xs)))./(tanh(beta*xs)+tanh(beta*(1-xs)));
+      wf = (tanh(beta*xs)+tanh(beta*(ps-xs)))./(tanh(beta*xs)+tanh(beta*(1-xs)));
       if nargout > 1
-          df =((1-tanh(beta*xs).^2)-(1-tanh(beta*(ps-xs)).^2)*beta)/(tanh(beta*xs)+tanh(beta*(1-xs))) ...
+          dwf =((1-tanh(beta*xs).^2)-(1-tanh(beta*(ps-xs)).^2)*beta)/(tanh(beta*xs)+tanh(beta*(1-xs))) ...
           - (tanh(beta*ps)+tanh(beta*(xs-ps)))*beta*((1-tanh(beta*xs).^2)-(1-tanh(beta*(1-xs)).^2))./(tanh(beta*ps)+tanh(beta*(1-xs))).^2;
       end
   
