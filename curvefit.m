@@ -384,7 +384,7 @@ function [c,ceq,dc,dceq] = getNonLinearConstraints(xval,prob,options)
   
   % DSA
   if nargout > 2
-    
+    [dc,dceq] = getNonLinearConstraintsDSA(xval,prob,options);
   end
   
   
@@ -462,10 +462,57 @@ function [A,b,Aeq,beq] = getLinearConstraints(prob,options)
   
   % Setup curve continuity constraints
   if ~options.floating
-    
-  end
-  
-  
+    for curveNo = 2:prob.nCurves
+      x = prob.curveStart(curveNo)
+      
+      % Specify c^0 continuity: f1(x) - f2(x) = 0
+      
+      % Update constraint counter
+      AeqNo = AeqNo + 1;
+      % f1 part
+      % Extract first design variable for curve
+      DVNo = prob.curveNo2DVNo{curveNo}(1)
+      Aeq(AeqNo,DVNo) = 1;
+      for orderNo = 1:prob.curveOrder(curveNo)
+        DVNo = prob.curveNo2DVNo{curveNo}(1+orderNo);
+        Aeq(AeqNo,DVNo) = x^(orderNo);
+      end
+      
+      % f2 part
+      % Extract first design variable from the curve behind current
+      DVNo = prob.curveNo2DVNo{curveNo-1}(1)
+      Aeq(AeqNo,DVNo) = 1;
+      for orderNo = 1:prob.curveOrder(curveNo-1)
+        DVNo = prob.curveNo2DVNo{curveNo-1}(1+orderNo);
+        Aeq(AeqNo,DVNo) = -x^(orderNo);
+      end
+      
+      % Specify continuity constraints from c^1 to c^n: d^nf1(x)/dx^n - d^nf2(x)/dx^n = 0 
+      for cc = 1:prob.curveContinuity(curveNo)
+        % Update constraint counter
+        AeqNo = AeqNo + 1;
+        % f1 part
+        for orderNo = cc:prob.curveOrder(curveNo)
+          dc = orderNo;
+          for ii = 1:cc-1
+            dc = dc*(orderNo-ii);
+          end
+          DVNo = prob.curveNo2DVNo{curveNo}(orderNo+1);
+          Aeq(AeqNo,DVNo) = dc*x^(cc-1);
+        end
+        % f2 part  
+        for orderNo = cc:prob.curveOrder(curveNo-1);
+          dc = orderNo;
+          for ii = 1:cc-1
+            dc = dc*(orderNo-ii);
+          end
+          DVNo = prob.curveNo2DVNo{curveNo-1}(orderNo+1);
+          Aeq(AeqNo,DVNo) = -dc*x^(cc-1);
+        end
+        
+      end % curveContinuity
+    end % nCurves
+  end % not floating
 end
 
 
