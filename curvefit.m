@@ -28,14 +28,16 @@ function [fhandle,exitflag,message] = curvefit(points,nCurves,curveOrder,varargi
   [prob,exitflag,message_out]  = problemformulation(options);
   message = sprintf('%s \n',message_out);
   
-  x = linspace(0,1,1000);
-  [pwf] = getPointWeightsForCurveInterval(x,0.25,0.75,100);
-  [dpwfs] = getFloatingStartPointDSA(x,0.25,0.75,100);
-  figure;
-  subplot(2,1,1)
-  plot(x,pwf)
-  subplot(2,1,2)
-  plot(x,dpwfs)
+  [A,b,Aeq,beq] = getLinearConstraints(prob,options);
+  
+##  x = linspace(0,1,1000);
+##  [pwf] = getPointWeightsForCurveInterval(x,0.25,0.75,100);
+##  [dpwfs] = getFloatingStartPointDSA(x,0.25,0.75,100);
+##  figure;
+##  subplot(2,1,1)
+##  plot(x,pwf)
+##  subplot(2,1,2)
+##  plot(x,dpwfs)
 end
 
 function [options,exitflag,message]=setOptions(points,nCurves,curveOrder,input)
@@ -74,8 +76,8 @@ function [options,exitflag,message]=setOptions(points,nCurves,curveOrder,input)
   p.addParameter('plot',false,  @(x)islogical(x));
 
   % Additional constraints
-  p.addParameter('c0',[],  @(x)checkEmptyOrScalarNum(x)); % local c0
-  p.addParameter('c1',[],  @(x)checkEmptyOrScalarNum(x)); % local c1
+  p.addParameter('c0',[],  @(x)checkEmptyOrScalarNum(x) && size(x,2)==2 && size(x,1)>0); % local c0
+  p.addParameter('c1',[],  @(x)checkEmptyOrScalarNum(x) && size(x,2)==2 && size(x,1)>0); % local c1
   p.addParameter('pointlb',[],  @(x)checkEmptyOrScalarNum(x)); % for each point, we can specify a lower bound value, curve must be above this value
   p.addParameter('pointub',[],  @(x)checkEmptyOrScalarNum(x)); % for each point, we can specify an upper bound value, curve must be below this value
   p.addParameter('kappa',[],  @(x)checkEmptyOrNumericPositive(x)); % local curvature constraints, the curve must not have an abs(geometric curvature) above this value
@@ -108,12 +110,12 @@ function [options,exitflag,message]=setOptions(points,nCurves,curveOrder,input)
     end
   end
   
-    % Determine if curve continuity has been specified for each curve or just one value which should apply to all curves
-  if numel(options.curveContinuity) ~= options.nCurves
+    % Determine if curve continuity has been specified for each curve segment or just one value which should apply to all curve segments
+  if numel(options.curveContinuity) ~= options.nCurves-1
     if numel(options.curveContinuity) == 1
-      options.curveContinuity = repmat(options.curveContinuity,[options.nCurves,1]);
+      options.curveContinuity = repmat(options.curveContinuity,[options.nCurves-1,1]);
     else
-       message = sprintf('Please only specify curve continuity either by one value, or for each curve');
+       message = sprintf('Please only specify curve continuity either by one value, or for each curve segment');
        exitflag = 0;
     end
   end
@@ -131,6 +133,7 @@ function [prob,exitflag,message] = problemformulation(options)
   % Load some key data from options structure to prob structure
   prob.nCurves = options.nCurves;
   prob.curveOrder = options.curveOrder;
+  prob.curveContinuity = options.curveContinuity;
   
   % Determine how the user has specified the problem
   if numel(options.startpos) == 1
@@ -270,7 +273,7 @@ function [prob,exitflag,message] = setupStandardFormulation(prob,options)
   
   % Count number of continuity constraints between each curve segment
   % These are linear equality
-  prob.nAeq = prob.nAeq + sum(options.curveContinuity(1:end-1)+1);
+  prob.nAeq = prob.nAeq + sum(options.curveContinuity+1); % plus 1 due to c^0 part
   
   % Count number of local c0 constraints, these are linear equality
   if ~isempty(options.c0)
@@ -462,8 +465,9 @@ function [A,b,Aeq,beq] = getLinearConstraints(prob,options)
   
   % Setup curve continuity constraints
   if ~options.floating
-    for curveNo = 2:prob.nCurves
-      x = prob.curveStart(curveNo)
+    for curveNo = 1:prob.nCurves-1
+      % Extract end position of the current curve
+      x = prob.curveEnd(curveNo);
       
       % Specify c^0 continuity: f1(x) - f2(x) = 0
       
@@ -471,7 +475,7 @@ function [A,b,Aeq,beq] = getLinearConstraints(prob,options)
       AeqNo = AeqNo + 1;
       % f1 part
       % Extract first design variable for curve
-      DVNo = prob.curveNo2DVNo{curveNo}(1)
+      DVNo = prob.curveNo2DVNo{curveNo}(1);
       Aeq(AeqNo,DVNo) = 1;
       for orderNo = 1:prob.curveOrder(curveNo)
         DVNo = prob.curveNo2DVNo{curveNo}(1+orderNo);
@@ -479,11 +483,11 @@ function [A,b,Aeq,beq] = getLinearConstraints(prob,options)
       end
       
       % f2 part
-      % Extract first design variable from the curve behind current
-      DVNo = prob.curveNo2DVNo{curveNo-1}(1)
+      % Extract first design variable from the curve infront of current curve
+      DVNo = prob.curveNo2DVNo{curveNo+1}(1);
       Aeq(AeqNo,DVNo) = 1;
-      for orderNo = 1:prob.curveOrder(curveNo-1)
-        DVNo = prob.curveNo2DVNo{curveNo-1}(1+orderNo);
+      for orderNo = 1:prob.curveOrder(curveNo+1)
+        DVNo = prob.curveNo2DVNo{curveNo+1}(1+orderNo);
         Aeq(AeqNo,DVNo) = -x^(orderNo);
       end
       
@@ -493,25 +497,102 @@ function [A,b,Aeq,beq] = getLinearConstraints(prob,options)
         AeqNo = AeqNo + 1;
         % f1 part
         for orderNo = cc:prob.curveOrder(curveNo)
-          dc = orderNo;
+          % calculate orderNo*(orderNo-1)*(orderNo-2)*...*(orderNo-n)
+          devPart = orderNo;
           for ii = 1:cc-1
-            dc = dc*(orderNo-ii);
+            devPart = devPart*(orderNo-ii);
           end
           DVNo = prob.curveNo2DVNo{curveNo}(orderNo+1);
-          Aeq(AeqNo,DVNo) = dc*x^(cc-1);
+          Aeq(AeqNo,DVNo) = devPart*x^(cc-1);
         end
         % f2 part  
-        for orderNo = cc:prob.curveOrder(curveNo-1);
-          dc = orderNo;
+        for orderNo = cc:prob.curveOrder(curveNo+1);
+          % calculate orderNo*(orderNo-1)*(orderNo-2)*...*(orderNo-n)
+          devPart = orderNo;
           for ii = 1:cc-1
-            dc = dc*(orderNo-ii);
+            devPart = devPart*(orderNo-ii);
           end
-          DVNo = prob.curveNo2DVNo{curveNo-1}(orderNo+1);
-          Aeq(AeqNo,DVNo) = -dc*x^(cc-1);
+          DVNo = prob.curveNo2DVNo{curveNo+1}(orderNo+1);
+          Aeq(AeqNo,DVNo) = -devPart*x^(cc-1);
         end
         
       end % curveContinuity
     end % nCurves
+    
+    % Local c0 constraints
+    if ~isempty(options.c0)
+      nC0 = size(options.c0,1);
+      for cNo = 1:nC0
+        xTarget = options.c0(cNo,1);
+        yTarget = options.c0(cNo,2);
+        
+        % Determine which curve "covers" the specified constraint
+        if xTarget <= prob.curveStart(1) % Extrapolate from first curve
+          curveNo = 1;
+        elseif xTarget >= prob.curveEnd(end) % Extrapolate from last curve
+          curveNo = prob.nCurves;
+        else % Position lies in a curve segment
+          curveNos = find(xTarget >= prob.curveStart & xTarget <= prob.curveEnd);
+          if ~isempty(curveNos)
+            curveNo = curveNos(1);
+          else
+            err_msg = sprintf('Specified c0 point not located in curve intervals, this should not be possible, check inputs: c0(xTarget,yTarget) = (%d,%d)',xTarget,yTarget);
+            error(err_msg);
+          end
+        end
+        % Update constraint counter
+        AeqNo = AeqNo + 1;
+        % Set rhs
+        beq(AeqNo) = yTarget;
+        % extract coefficients
+        % Set first value
+        DVNo = prob.curveNo2DVNo{curveNo}(1);
+        Aeq(AeqNo,DVNo) = 1;
+        % Set the remaining coefficients
+        for orderNo = 1:prob.curveOrder(curveNo)
+          DVNo = prob.curveNo2DVNo{curveNo}(orderNo+1);
+          Aeq(AeqNo,DVNo) = xTarget^orderNo;
+        end
+      end
+    end
+    
+    % Local c1 constraints
+    if ~isempty(options.c1)
+      nC1 = size(options.c1,1);
+      for cNo = 1:nC0
+        xTarget = options.c1(cNo,1);
+        yTarget = options.c1(cNo,2);
+        
+        % Determine which curve "covers" the specified constraint
+        if xTarget <= prob.curveStart(1) % Extrapolate from first curve
+          curveNo = 1;
+        elseif xTarget >= prob.curveEnd(end) % Extrapolate from last curve
+          curveNo = prob.nCurves;
+        else % Position lies in a curve segment
+          curveNos = find(xTarget >= prob.curveStart & xTarget <= prob.curveEnd);
+          if ~isempty(curveNos)
+            curveNo = curveNos(1);
+          else
+            err_msg = sprintf('Specified c1 point not located in curve intervals, this should not be possible, check inputs: c0(xTarget,yTarget) = (%d,%d)',xTarget,yTarget);
+            error(err_msg);
+          end
+        end
+        % Update constraint counter
+        AeqNo = AeqNo + 1;
+        % Set rhs
+        beq(AeqNo) = yTarget;
+        % extract coefficients
+        % Set first value
+        DVNo = prob.curveNo2DVNo{curveNo}(1);
+        Aeq(AeqNo,DVNo) = 0;
+        % Set the remaining coefficients
+        for orderNo = 1:prob.curveOrder(curveNo)
+          DVNo = prob.curveNo2DVNo{curveNo}(orderNo+1);
+          Aeq(AeqNo,DVNo) = orderNo*xTarget^(orderNo-1);
+        end
+      end
+    end
+    
   end % not floating
 end
 
