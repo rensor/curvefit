@@ -33,9 +33,28 @@ function [fhandle,exitflag,message] = curvefit(points,nCurves,curveOrder,varargi
   fun = @(x) getObjectiveFunction(x,prob);
   nonlcon = @(x) getNonLinearConstraints(x,prob,options);
   
-  opti = fminslp(fun,prob.x0,A,b,Aeq,beq,prob.xL,prob.xU,nonlcon,'display','iter','SpecifyObjectiveGradient',true,'SpecifyConstraintGradient',true,'CheckGradients',true,'solver','glpk');
-  [x,fval,exitflag,output] = opti.solve;
+  opti = fminslp(fun,prob.x0,A,b,Aeq,beq,prob.xL,prob.xU,nonlcon,'display','iter','SpecifyObjectiveGradient',true,'SpecifyConstraintGradient',true,'CheckGradients',false,'solver','glpk');
+  [xval,fval,exitflag,output] = opti.solve;
   message = output;
+  
+  % Make minimal structure for function evaluation
+  settings = struct('curveStart',[],...
+                    'curveEnd',[],...
+                    'nCurves',[],...
+                    'curveNo2DVNo',[],...
+                    'curveOrder',[]);
+  settings.curveStart = prob.curveStart;
+  settings.curveEnd = prob.curveEnd;
+  settings.nCurves = prob.nCurves;
+  settings.curveNo2DVNo = prob.curveNo2DVNo;
+  settings.curveOrder = prob.curveOrder;
+  fhandle = @(x,varargin) evalFit(x,settings,xval,varargin);
+  
+  if options.plot
+    plotFit(xval,settings,points);
+  end
+  
+  
 end
 
 function [options,exitflag,message]=setOptions(points,nCurves,curveOrder,input)
@@ -63,7 +82,7 @@ function [options,exitflag,message]=setOptions(points,nCurves,curveOrder,input)
   % 
   p.addParameter('startpos',[],checkEmptyOrScalarNum);
   p.addParameter('endpos',[], @(x)checkEmptyOrScalarNum(x));
-  p.addParameter('curveContinuity',curveOrder, @(x)checkScalarNumPos(x));
+  p.addParameter('curveContinuity',max(curveOrder-1,0), @(x)checkScalarNumPos(x));
 
   % Settings for floating curve intersection points
   p.addParameter('floating',false,  @(x)islogical(x));
@@ -395,13 +414,13 @@ end
 function [dc,dceq] = getNonLinearConstraintsDSA(xval,prob,options)
   
   if prob.nC > 0
-    dc = zeros(prob.nDV,prob.nC);
+    dc = sparse(prob.nDV,prob.nC);
   else
     dc = [];
   end
   
   if prob.nCeq > 0
-    dceq = zeros(prob.nDV,prob.nCeq);
+    dceq = sparse(prob.nDV,prob.nCeq);
   else
     dceq = [];
   end
@@ -455,7 +474,7 @@ function [A,b,Aeq,beq] = getLinearConstraints(prob,options)
   
   % Initialize output arrays, default to zero
   if prob.nA > 0
-    A = zeros(prob.nA,prob.nDV);
+    A = sparse(prob.nA,prob.nDV);
     b = zeros(prob.nA,1);
   else
     A = [];
@@ -463,7 +482,7 @@ function [A,b,Aeq,beq] = getLinearConstraints(prob,options)
   end
   
   if prob.nAeq > 0
-    Aeq = zeros(prob.nAeq,prob.nDV);
+    Aeq = sparse(prob.nAeq,prob.nDV);
     beq = zeros(prob.nAeq,1);
   else
     Aeq = [];
@@ -659,6 +678,158 @@ function [A,b,Aeq,beq] = getLinearConstraints(prob,options)
     error(err_msg);
   end
   
+end
+
+function [fval,df] = evalFit(xIn,settings,xval,varargin)
+    % Here you can add new options if needed
+  p = inputParser;
+  p.CaseSensitive = false;
+  % Helper functions for input parser
+  checkEmptyOrNumericPositive = @(x)(isempty(x) || ((isnumeric(x) || isscalar(x)) && all(x > 0)));
+  checkPoints =@(x) isnumeric(x) && min(size(x))==1;
+  % The order of the required inputs matter
+  p.addRequired('x',checkPoints);
+  % 
+  p.addParameter('plot',false,@(x)islogical(x));
+  p.addParameter('df',[], @(x)checkEmptyOrNumericPositive(x));
+  
+    % pars input
+  if nargin < 4 || isempty(varargin)
+      parse(p,xIn);
+  else
+      temp = varargin{:};
+      parse(p,xIn,temp{:});
+  end
+  % Output results to options structure
+  options = p.Results;
+  
+  [x,idx] = sort(xIn);
+  nP = numel(x);
+  fval = zeros(size(x)); % same output size as input
+  
+  if ~isempty(options.df)
+    ndf = numel(options.df);
+    df = zeros(nP,ndf);
+  else
+    df = []; % Initialize to empty
+    ndf = 0;
+  end
+  
+  for pNo = 1:nP
+    
+    % Determine which curve "covers" the specified constraint
+    if x(pNo) <= settings.curveStart(1) % Extrapolate from first curve
+      curveNo = 1;
+    elseif x(pNo) >= settings.curveEnd(end) % Extrapolate from last curve
+      curveNo = settings.nCurves;
+    else % Position lies in a curve segment
+      curveNos = find(x(pNo) >= settings.curveStart & x(pNo) <= settings.curveEnd);
+      if ~isempty(curveNos)
+        curveNo = curveNos(1); % if the point lies at an "intersection" between two curves, pick the first curve
+      else
+        err_msg = sprintf('Specified point not located in curve intervals, this should not be possible, check inputs: x(%i) = %d',x(idx(pNo)),x(pNo));
+        error(err_msg);
+      end
+    end
+    
+    DVNo = settings.curveNo2DVNo{curveNo}(1);
+    fval(pNo) = xval(DVNo);
+    for orderNo = 1:settings.curveOrder(curveNo)
+      DVNo = settings.curveNo2DVNo{curveNo}(1+orderNo);
+      fval(pNo) = fval(pNo) + xval(DVNo)*x(pNo)^orderNo;
+    end
+    
+    if ~isempty(options.df)
+      for dfNo = 1:ndf
+        cc = options.df(dfNo);
+        for orderNo = cc:settings.curveOrder(curveNo)
+          % calculate orderNo*(orderNo-1)*(orderNo-2)*...*(orderNo-n)
+          devPart = orderNo;
+          for ii = 1:cc-1
+            devPart = devPart*(orderNo-ii);
+          end
+          DVNo = settings.curveNo2DVNo{curveNo}(orderNo+1);
+          df(pNo,dfNo) = df(pNo,dfNo) + devPart*xval(DVNo)*x(pNo)^(orderNo-cc);
+        end
+      end
+    end
+  end
+  
+  if options.plot
+    nPlots = 1 + ndf;
+    % Get some nice colors from linspecer, see  Jonathan C. Lansey (2020). Beautiful and distinguishable line colors + colormap 
+    % (https://www.mathworks.com/matlabcentral/fileexchange/42673-beautiful-and-distinguishable-line-colors-colormap)
+    %  MATLAB Central File Exchange. Retrieved February 18, 2020. 
+    colors = linspecer(nPlots); %
+    figure('Name','curvefit plot');
+    subplot(nPlots,1,1)
+    plot(x,fval,'color',colors(1,:));
+    xlabel('x')
+    ylabel('f(x)')
+    grid on
+    % Plot all the derivatives, if any
+    for plotNo = 2:nPlots
+      subplot(nPlots,1,plotNo)
+      plot(x,df(:,plotNo-1),'color',colors(plotNo,:));
+      xlabel('x')
+      if options.df(plotNo-1) > 1
+        ylabel(sprintf('d^%if/dx^%i',plotNo-1,plotNo-1))
+      else
+        ylabel('df/dx')
+      end
+      grid on
+    end
+  end
+  
+  
+end
+
+function plotFit(xval,settings,points)
+  
+  x = unique([points(:,2);linspace(min(points(:,2)),max(points(:,2)),5*numel(points(:,2)))']);
+  nP = numel(x);
+  fval = zeros(nP,1);
+  for pNo = 1:nP
+    % Determine which curve "covers" the specified constraint
+    if x(pNo) <= settings.curveStart(1) % Extrapolate from first curve
+      curveNo = 1;
+    elseif x(pNo) >= settings.curveEnd(end) % Extrapolate from last curve
+      curveNo = settings.nCurves;
+    else % Position lies in a curve segment
+      curveNos = find(x(pNo) >= settings.curveStart & x(pNo) <= settings.curveEnd);
+      if ~isempty(curveNos)
+        curveNo = curveNos(1); % if the point lies at an "intersection" between two curves, pick the first curve
+      else
+        err_msg = sprintf('Specified point not located in curve intervals, this should not be possible, check inputs: x(%i) = %d',x(idx(pNo)),x(pNo));
+        error(err_msg);
+      end
+    end
+    
+    DVNo = settings.curveNo2DVNo{curveNo}(1);
+    fval(pNo) = xval(DVNo);
+    for orderNo = 1:settings.curveOrder(curveNo)
+      DVNo = settings.curveNo2DVNo{curveNo}(1+orderNo);
+      fval(pNo) = fval(pNo) + xval(DVNo)*x(pNo)^orderNo;
+    end
+  end
+  colors = linspecer(2); %
+  figure('Name','curvefit: Compare fit to target');
+  subplot(2,1,1)
+  hold on
+  plot(x,fval,'color',colors(1,:));
+  scatter(points(:,2),points(:,1),'o');
+  legend('Fit','target points')
+  xlabel('x')
+  ylabel('f(x)')
+  grid on
+  subplot(2,1,2)
+  % We can interpolate to get exact values as we know the positions have been evaluated
+  fp = interp1(x,fval,points(:,2));
+  plot(points(:,2),fp-points(:,1),'color',colors(2,:));
+  xlabel('x')
+  ylabel('f(x)-target')
+  legend('Difference')
+  grid on
 end
 
 
