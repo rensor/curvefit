@@ -30,14 +30,12 @@ function [fhandle,exitflag,message] = curvefit(points,nCurves,curveOrder,varargi
   
   [A,b,Aeq,beq] = getLinearConstraints(prob,options);
   
-##  x = linspace(0,1,1000);
-##  [pwf] = getPointWeightsForCurveInterval(x,0.25,0.75,100);
-##  [dpwfs] = getFloatingStartPointDSA(x,0.25,0.75,100);
-##  figure;
-##  subplot(2,1,1)
-##  plot(x,pwf)
-##  subplot(2,1,2)
-##  plot(x,dpwfs)
+  fun = @(x) getObjectiveFunction(x,prob);
+  nonlcon = @(x) getNonLinearConstraints(x,prob,options);
+  
+  opti = fminslp(fun,prob.x0,A,b,Aeq,beq,prob.xL,prob.xU,nonlcon,'display','iter','SpecifyObjectiveGradient',true,'SpecifyConstraintGradient',true,'CheckGradients',true,'solver','glpk');
+  [x,fval,exitflag,output] = opti.solve;
+  message = output;
 end
 
 function [options,exitflag,message]=setOptions(points,nCurves,curveOrder,input)
@@ -134,6 +132,7 @@ function [prob,exitflag,message] = problemformulation(options)
   prob.nCurves = options.nCurves;
   prob.curveOrder = options.curveOrder;
   prob.curveContinuity = options.curveContinuity;
+  prob.method = options.method;
   
   % Determine how the user has specified the problem
   if numel(options.startpos) == 1
@@ -314,9 +313,9 @@ end
 function [fval,df] = getObjectiveFunction(xval,prob)
   switch prob.method
     case 'bound'
-      fval = sum(xval(prob.nCurveDV+1:prob.nCurveDV+prob.nBoundDV))
+      fval = sum(xval(prob.nCurveDV+1:prob.nCurveDV+prob.nBoundDV));
       if nargout > 1
-        df = zeros(prob.nDV);
+        df = zeros(prob.nDV,1);
         df(prob.nCurveDV+1:prob.nCurveDV+prob.nBoundDV) = 1;
       end
   end
@@ -357,7 +356,7 @@ function [c,ceq,dc,dceq] = getNonLinearConstraints(xval,prob,options)
         
         % Extract first coefficient in polynomial
         f1 = xval(prob.curveNo2DVNo{curveNo}(1));
-        for orderNo = 1:prob.curveOrder{curveNo}
+        for orderNo = 1:prob.curveOrder(curveNo)
           f1 = f1 + xval(prob.curveNo2DVNo{curveNo}(1+orderNo))*x^orderNo;
         end
         
@@ -425,7 +424,7 @@ function [dc,dceq] = getNonLinearConstraintsDSA(xval,prob,options)
         dc(prob.curveNo2DVNo{curveNo}(1),cNo) = 1;
         dc(prob.curveNo2DVNo{curveNo}(1),cNo+1) = -1;
         % loop for the remaining design variables associated with the current curveNo
-        for orderNo = 1:prob.curveOrder{curveNo}
+        for orderNo = 1:prob.curveOrder(curveNo)
           dc(prob.curveNo2DVNo{curveNo}(1+orderNo),cNo) = x^orderNo;
           dc(prob.curveNo2DVNo{curveNo}(1+orderNo),cNo+1) = -x^orderNo;
         end
@@ -436,6 +435,18 @@ function [dc,dceq] = getNonLinearConstraintsDSA(xval,prob,options)
         cNo = cNo + 1;
       end
     end
+  end
+  
+  % Error checks
+  if cNo ~= prob.nC
+    err_msg = sprintf('Number of added non-linear in-equality constraints (%i) does not match expected (%i), check inputs',cNo,prob.nC);
+    error(err_msg);
+  end
+  
+  % Error checks
+  if ceqNo ~= prob.nCeq
+    err_msg = sprintf('Number of added non-linear in-equality constraints (%i) does not match expected (%i), check inputs',cNo,prob.nC);
+    error(err_msg);
   end
   
 end
@@ -451,7 +462,7 @@ function [A,b,Aeq,beq] = getLinearConstraints(prob,options)
     b = [];
   end
   
-  if prob.nA > 0
+  if prob.nAeq > 0
     Aeq = zeros(prob.nAeq,prob.nDV);
     beq = zeros(prob.nAeq,1);
   else
@@ -593,7 +604,61 @@ function [A,b,Aeq,beq] = getLinearConstraints(prob,options)
       end
     end
     
+    % Lower and upper bounds on points
+    if ~isempty(options.pointlb) || ~isempty(options.pointub)
+      for pNo = 1:options.nP;
+        xTarget = options.points(pNo,1);
+        curveNo = prob.pointNo2CurveNo(pNo);
+        
+        % Lower bound
+        if ~isempty(options.pointlb) 
+          % Update constraint counter
+          ANo = ANo + 1;
+          % Set rhs for lb
+          b(ANo) = -options.pointlb(pNo);
+          % extract coefficients
+          % Set first value
+          DVNo = prob.curveNo2DVNo{curveNo}(1);
+          A(ANo,DVNo) = -1;
+          % Set the remaining coefficients
+          for orderNo = 1:prob.curveOrder(curveNo)
+            DVNo = prob.curveNo2DVNo{curveNo}(orderNo+1);
+            A(ANo,DVNo) = -orderNo*xTarget^(orderNo-1);
+          end
+        end
+        
+        % Upper bound
+        if ~isempty(options.pointub) 
+          % Update constraint counter
+          ANo = ANo + 1;
+          % Set rhs for lb
+          b(ANo) = options.pointub(pNo);
+          % extract coefficients
+          % Set first value
+          DVNo = prob.curveNo2DVNo{curveNo}(1);
+          A(ANo,DVNo) = 1;
+          % Set the remaining coefficients
+          for orderNo = 1:prob.curveOrder(curveNo)
+            DVNo = prob.curveNo2DVNo{curveNo}(orderNo+1);
+            A(ANo,DVNo) = orderNo*xTarget^(orderNo-1);
+          end
+        end
+        
+      end % for np
+    end % pointlb and pointub
   end % not floating
+  
+  % Error checks
+  if ANo ~= prob.nA
+    err_msg = sprintf('Number of added linear in-equality constraints (%i) does not match expected (%i), check inputs',ANo,prob.nA);
+    error(err_msg);
+  end
+  
+  if AeqNo ~= prob.nAeq
+    err_msg = sprintf('Number of added linear equality constraints (%i) does not match expected (%i), check inputs',AeqNo,prob.nAeq);
+    error(err_msg);
+  end
+  
 end
 
 
