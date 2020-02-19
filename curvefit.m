@@ -69,6 +69,7 @@ function [options,exitflag,message]=setOptions(points,nCurves,curveOrder,input)
   checkEmpetyOrChar = @(x)(isempty(x) || ischar(x));
   checkEmptyOrNumericPositive = @(x)(isempty(x) || ((isnumeric(x) || isscalar(x)) && all(x > 0)));
   checkScalarNumPos = @(x)(isnumeric(x) || isscalar(x)) && (x > 0);
+  checkScalarNumGTeqZero = @(x)(isnumeric(x) || isscalar(x)) && (x >=0 );
   checkScalarNum = @(x)(isnumeric(x) || isscalar(x));
   checkEmptyOrScalarNum = @(x)(isempty(x) || isnumeric(x) || isscalar(x));
   checkPoints =@(x) isnumeric(x) && size(x,2)==2 && size(x,1)>1;
@@ -82,7 +83,7 @@ function [options,exitflag,message]=setOptions(points,nCurves,curveOrder,input)
   % 
   p.addParameter('startpos',[],checkEmptyOrScalarNum);
   p.addParameter('endpos',[], @(x)checkEmptyOrScalarNum(x));
-  p.addParameter('curveContinuity',max(curveOrder-1,0), @(x)checkScalarNumPos(x));
+  p.addParameter('curveContinuity',max(curveOrder-1,0), @(x)checkScalarNumGTeqZero(x));
 
   % Settings for floating curve intersection points
   p.addParameter('floating',false,  @(x)islogical(x));
@@ -515,7 +516,7 @@ function [A,b,Aeq,beq] = getLinearConstraints(prob,options)
       % f2 part
       % Extract first design variable from the curve infront of current curve
       DVNo = prob.curveNo2DVNo{curveNo+1}(1);
-      Aeq(AeqNo,DVNo) = 1;
+      Aeq(AeqNo,DVNo) = -1;
       for orderNo = 1:prob.curveOrder(curveNo+1)
         DVNo = prob.curveNo2DVNo{curveNo+1}(1+orderNo);
         Aeq(AeqNo,DVNo) = -x^(orderNo);
