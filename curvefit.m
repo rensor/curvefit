@@ -22,22 +22,35 @@ function [fhandle,exitflag,message] = curvefit(points,nCurves,curveOrder,varargi
     message = sprintf('curvefit: input points needs to be a nP x 2 array. Number of columns for input is %3i', size(points,2));
     return
   end
-
-  [options,exitflag,message_out] = setOptions(points,nCurves,curveOrder,varargin);
-  message = sprintf('%s \n',message_out);
-  [prob,exitflag,message_out]  = problemformulation(options);
-  message = sprintf('%s \n',message_out);
   
+  % get options strucutre containing user defined options
+  [options,exitflag,message] = setOptions(points,nCurves,curveOrder,varargin);
+  if exitflag < 1
+    return
+  end
+  
+  % get problem structure containing information nessary to build optimization problem
+  [prob,exitflag,message]  = problemformulation(options);
+  if exitflag < 1
+    return
+  end
+  
+  % Assemble linear constraints
   [A,b,Aeq,beq] = getLinearConstraints(prob,options);
   
+  % Specify function handles
   fun = @(x) getObjectiveFunction(x,prob);
   nonlcon = @(x) getNonLinearConstraints(x,prob,options);
   
-  opti = fminslp(fun,prob.x0,A,b,Aeq,beq,prob.xL,prob.xU,nonlcon,'display','iter','SpecifyObjectiveGradient',true,'SpecifyConstraintGradient',true,'CheckGradients',false,'solver','glpk');
+  % Call optimizer(s)
+  opti = fminslp(fun,prob.x0,A,b,Aeq,beq,prob.xL,prob.xU,nonlcon,'display','iter','SpecifyObjectiveGradient',true,'SpecifyConstraintGradient',true,'CheckGradients',false,'solver','glpk','FunctionTolerance',1e-9);
   [xval,fval,exitflag,output] = opti.solve;
   message = output.message;
+  if exitflag < 1
+    return
+  end
   
-  % Make minimal structure for function evaluation
+  % Make minimal structure for function evaluation, save memory
   settings = struct('curveStart',[],...
                     'curveEnd',[],...
                     'nCurves',[],...
@@ -48,8 +61,11 @@ function [fhandle,exitflag,message] = curvefit(points,nCurves,curveOrder,varargi
   settings.nCurves = prob.nCurves;
   settings.curveNo2DVNo = prob.curveNo2DVNo;
   settings.curveOrder = prob.curveOrder;
+  
+  % Make output function handle for evaluation of curve(s)
   fhandle = @(x,varargin) evalFit(x,settings,xval,varargin);
   
+  % plot result or not
   if options.plot
     plotFit(xval,settings,points);
   end
@@ -331,6 +347,7 @@ function [prob,exitflag,message] = setupStandardFormulation(prob,options)
 end
 
 function [fval,df] = getObjectiveFunction(xval,prob)
+  % Main function for evaluating the objective function
   switch prob.method
     case 'bound'
       fval = sum(xval(prob.nCurveDV+1:prob.nCurveDV+prob.nBoundDV));
@@ -343,6 +360,7 @@ end
 
 
 function [c,ceq,dc,dceq] = getNonLinearConstraints(xval,prob,options)
+   % Main function for evaluating the non-linear constraints
   if prob.nC > 0
     c = zeros(prob.nC,1);
   else
@@ -413,7 +431,7 @@ function [c,ceq,dc,dceq] = getNonLinearConstraints(xval,prob,options)
 end
 
 function [dc,dceq] = getNonLinearConstraintsDSA(xval,prob,options)
-  
+   % Main function for evaluating the gradients of the non-linear constraints
   if prob.nC > 0
     dc = sparse(prob.nDV,prob.nC);
   else
@@ -472,6 +490,7 @@ function [dc,dceq] = getNonLinearConstraintsDSA(xval,prob,options)
 end
 
 function [A,b,Aeq,beq] = getLinearConstraints(prob,options)
+  % Main function for assembling the linear constraints
   
   % Initialize output arrays, default to zero
   if prob.nA > 0
@@ -590,7 +609,7 @@ function [A,b,Aeq,beq] = getLinearConstraints(prob,options)
     % Local c1 constraints
     if ~isempty(options.c1)
       nC1 = size(options.c1,1);
-      for cNo = 1:nC0
+      for cNo = 1:nC1
         xTarget = options.c1(cNo,1);
         yTarget = options.c1(cNo,2);
         
@@ -627,7 +646,7 @@ function [A,b,Aeq,beq] = getLinearConstraints(prob,options)
     % Lower and upper bounds on points
     if ~isempty(options.pointlb) || ~isempty(options.pointub)
       for pNo = 1:options.nP;
-        xTarget = options.points(pNo,1);
+        xTarget = options.points(pNo,2);
         curveNo = prob.pointNo2CurveNo(pNo);
         
         % Lower bound
@@ -643,7 +662,7 @@ function [A,b,Aeq,beq] = getLinearConstraints(prob,options)
           % Set the remaining coefficients
           for orderNo = 1:prob.curveOrder(curveNo)
             DVNo = prob.curveNo2DVNo{curveNo}(orderNo+1);
-            A(ANo,DVNo) = -orderNo*xTarget^(orderNo-1);
+            A(ANo,DVNo) = -xTarget^(orderNo);
           end
         end
         
@@ -660,12 +679,12 @@ function [A,b,Aeq,beq] = getLinearConstraints(prob,options)
           % Set the remaining coefficients
           for orderNo = 1:prob.curveOrder(curveNo)
             DVNo = prob.curveNo2DVNo{curveNo}(orderNo+1);
-            A(ANo,DVNo) = orderNo*xTarget^(orderNo-1);
+            A(ANo,DVNo) = xTarget^(orderNo);
           end
         end
-        
       end % for np
     end % pointlb and pointub
+    
   end % not floating
   
   % Error checks
@@ -682,7 +701,9 @@ function [A,b,Aeq,beq] = getLinearConstraints(prob,options)
 end
 
 function [fval,df] = evalFit(xIn,settings,xval,varargin)
-    % Here you can add new options if needed
+  % This is the main part of the function used to evaluate the fit at various locations (xIn). 
+  % The function is passed to the user as output for easy evaluation of the fit.
+  
   p = inputParser;
   p.CaseSensitive = false;
   % Helper functions for input parser
@@ -786,6 +807,8 @@ function [fval,df] = evalFit(xIn,settings,xval,varargin)
 end
 
 function plotFit(xval,settings,points)
+  % This function is used to generate a plot which shows the fit and the "target" points.
+  % A comparison between the fit and the target points is also shown.
   
   x = unique([points(:,2);linspace(min(points(:,2)),max(points(:,2)),5*numel(points(:,2)))']);
   nP = numel(x);
