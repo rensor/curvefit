@@ -35,7 +35,7 @@ function [fhandle,exitflag,message] = curvefit(points,nCurves,curveOrder,varargi
   
   opti = fminslp(fun,prob.x0,A,b,Aeq,beq,prob.xL,prob.xU,nonlcon,'display','iter','SpecifyObjectiveGradient',true,'SpecifyConstraintGradient',true,'CheckGradients',false,'solver','glpk');
   [xval,fval,exitflag,output] = opti.solve;
-  message = output;
+  message = output.message;
   
   % Make minimal structure for function evaluation
   settings = struct('curveStart',[],...
