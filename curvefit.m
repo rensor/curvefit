@@ -73,7 +73,7 @@ function [fhandle,exitflag,message] = curvefit(points,nCurves,curveOrder,varargi
   
 end
 
-function [options,exitflag,message]=setOptions(points,nCurves,curveOrder,input)
+function [options,exitflag,message] = setOptions(points,nCurves,curveOrder,input)
   % Initialize output variables
   exitflag = 1;
   message = [];
@@ -378,6 +378,8 @@ function [prob,exitflag,message] = setupFloatingFormulation(prob,options)
   prob.xs = @(s) s.*prob.xc+prob.xa;
   prob.sx = @(x) (x-prob.xa)./prob.xc;
   prob.dsdx = 1/prob.xc;
+  % Normalize all point coordinates
+  prob.sxPoints = prob.sx(options.points(:,2));
   
   % get float dv no from curve no, the first curve is assigned a variable, but it will be fixed through it's bounds
   prob.curveNo2FloatDVNo = zeros(prob.nCurves,2)
@@ -387,6 +389,9 @@ function [prob,exitflag,message] = setupFloatingFormulation(prob,options)
     prob.curveNo2FloatDVNo(curveNo,1) = prob.curveNo2FloatDVNo(curveNo-1,2);
     prob.curveNo2FloatDVNo(curveNo,2) = prob.curveNo2FloatDVNo(curveNo,1)+1;
   end
+  
+  % Set linear equality constrints for fixing the first and last floating variables
+  prob.nAeq = prob.nAeq + 2;
   
   % We need to ensure that curve start positions don't "overlap/ cross" i.e., pos1 <= pos2,...,posn-1 <= posn
   prob.nA = prob.nA + prob.nFloatDV;
@@ -499,7 +504,7 @@ function [c,ceq,dc,dceq] = getNonLinearConstraints(xval,prob,options)
     for curveNo = 1:prob.nCurves
       sx1 = xval(prob.curveNo2FloatDVNo(curveNo,1));
       sx2 = xval(prob.curveNo2FloatDVNo(curveNo,2));
-      pwf = getPointWeightsForCurveInterval(prob.sx(options.points(:,2)),sx1,sx2,prob.beta);
+      pwf = getPointWeightsForCurveInterval(prob.sxPoints,sx1,sx2,prob.beta);
       for pNo = 1:prob.nP
         x = options.points(pNo,2);
         y = options.points(pNo,1);
@@ -588,12 +593,11 @@ function [dc,dceq] = getNonLinearConstraintsDSA(xval,c,ceq,prob,options)
   elseif strcmpi(options.method,'bound') && options.floating
     % Evaluate bound constraints
     for curveNo = 1:prob.nCurves
-      sx1 = xval(prob.curveNo2FloatDVNo(curveNo,1));
-      sx2 = xval(prob.curveNo2FloatDVNo(curveNo,2));
-      psx = prob.sx(options.points(:,2));
-      pwf = getPointWeightsForCurveInterval(psx,sx1,sx2,prob.beta);
-      dpwfs = getFloatingStartPointDSA(psx,sx1,sx2,prob.beta).*prob.dsdx;
-      dpwfe = getFloatingEndPointDSA(psx,sx1,sx2,prob.beta).*prob.dsdx;
+      sx1 = xval(prob.curveNo2FloatDVNo(curveNo,1)); % Get start coordinate
+      sx2 = xval(prob.curveNo2FloatDVNo(curveNo,2)); % Get end coordinate
+      pwf = getPointWeightsForCurveInterval(prob.sxPoints,sx1,sx2,prob.beta); % get point weight factor
+      dpwfs = getFloatingStartPointDSA(prob.sxPoints,sx1,sx2,prob.beta).*prob.dsdx; % get DSA of sx1 wrt., all points
+      dpwfe = getFloatingEndPointDSA(prob.sxPoints,sx1,sx2,prob.beta).*prob.dsdx; % get DSA of sx2 wrt., all points
       for pNo = 1:prob.nP
         x = options.points(pNo,2);
         y = options.points(pNo,1);
@@ -623,6 +627,78 @@ function [dc,dceq] = getNonLinearConstraintsDSA(xval,c,ceq,prob,options)
     end
   end
   
+  if options.floating
+    for curveNo = 1:prob.nCurves-1
+      % Extract end position of the current curve
+      fDVNo = prob.curveNo2FloatDVNo(curveNo,2);
+      x = xval(fDVNo);
+      
+      % Specify c^0 continuity: f1(x) - f2(x) = 0
+      
+      % Update constraint counter
+      ceqNo = ceqNo + 1;
+      % f1 part
+      % Extract first design variable for curve
+      DVNo = prob.curveNo2DVNo{curveNo}(1);
+      ceq(ceqNo,DVNo) = 1;
+      for orderNo = 1:prob.curveOrder(curveNo)
+        DVNo = prob.curveNo2DVNo{curveNo}(1+orderNo);
+        ceq(ceqNo,DVNo) = x^(orderNo);
+      end
+      
+      % Take care of the floating DV
+      DVNo = prob.curveNo2DVNo{curveNo}(2);
+      ceq(ceqNo,fDVNo) = xval(DVNo);
+      for orderNo = 2:prob.curveOrder(curveNo)
+        DVNo = prob.curveNo2DVNo{curveNo}(orderNo+1);
+        ceq(ceqNo,fDVNo) = ceq(ceqNo,fDVNo) + orderNo*xval(DVNo)*x^(orderNo-1);
+      end
+      
+      % f2 part
+      % Extract first design variable from the curve infront of current curve
+      DVNo = prob.curveNo2DVNo{curveNo+1}(1);
+      ceq(ceqNo,DVNo) = -1;
+      for orderNo = 1:prob.curveOrder(curveNo+1)
+        DVNo = prob.curveNo2DVNo{curveNo+1}(1+orderNo);
+        ceq(ceqNo,DVNo) = -x^(orderNo);
+      end
+      
+      % Take care of the floating DV
+      DVNo = prob.curveNo2DVNo{curveNo+1}(2);
+      ceq(ceqNo,fDVNo) = ceq(ceqNo,fDVNo) - xval(DVNo);
+      for orderNo = 2:prob.curveOrder(curveNo+1)
+        DVNo = prob.curveNo2DVNo{curveNo+1}(orderNo+1);
+        ceq(ceqNo,fDVNo) = ceq(ceqNo,fDVNo) - orderNo*xval(DVNo)*x^(orderNo-1);
+      end
+     
+      % Specify continuity constraints from c^1 to c^n: d^nf1(x)/dx^n - d^nf2(x)/dx^n = 0 
+      for cc = 1:prob.curveContinuity(curveNo)
+        % Update constraint counter
+        ceqNo = ceqNo + 1;
+        % f1 part
+        for orderNo = cc:prob.curveOrder(curveNo)
+          % calculate orderNo*(orderNo-1)*(orderNo-2)*...*(orderNo-n)
+          devPart = orderNo;
+          for ii = 1:cc-1
+            devPart = devPart*(orderNo-ii);
+          end
+          DVNo = prob.curveNo2DVNo{curveNo}(orderNo+1);
+          ceq(ceqNo,DVNo) = devPart*x^(cc-1);
+        end
+        % f2 part  
+        for orderNo = cc:prob.curveOrder(curveNo+1);
+          % calculate orderNo*(orderNo-1)*(orderNo-2)*...*(orderNo-n)
+          devPart = orderNo;
+          for ii = 1:cc-1
+            devPart = devPart*(orderNo-ii);
+          end
+          DVNo = prob.curveNo2DVNo{curveNo+1}(orderNo+1);
+          ceq(ceqNo,DVNo) = -devPart*x^(cc-1);
+        end
+        
+      end % curveContinuity
+    end % nCurves
+  end
   % Error checks
   if cNo ~= prob.nC
     err_msg = sprintf('Number of added non-linear in-equality constraints (%i) does not match expected (%i), check inputs',cNo,prob.nC);
