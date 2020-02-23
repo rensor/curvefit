@@ -41,7 +41,6 @@ function [fhandle,exitflag,message] = curvefit(points,nCurves,curveOrder,varargi
   % Specify function handles
   fun = @(x) getObjectiveFunction(x,prob);
   nonlcon = @(x) getNonLinearConstraints(x,prob,options);
-  [c,ceq,dc,dceq] = nonlcon(prob.x0);
   % Call optimizer(s)
   opti = fminslp(fun,prob.x0,A,b,Aeq,beq,prob.xL,prob.xU,nonlcon,'display','iter','SpecifyObjectiveGradient',true,'SpecifyConstraintGradient',true,'CheckGradients',true,'solver','glpk','FunctionTolerance',1e-9);
   [xval,fval,exitflag,output] = opti.solve;
@@ -68,9 +67,9 @@ function [fhandle,exitflag,message] = curvefit(points,nCurves,curveOrder,varargi
     for curveNo = 1:prob.nCurves
       fDVNo = prob.curveNo2FloatDVNo(curveNo,1);
       settings.curveStart(curveNo) = xval(fDVNo);
+      fDVNo = prob.curveNo2FloatDVNo(curveNo,2);
+      settings.curveEnd(curveNo) = xval(fDVNo);
     end
-    fDVNo = prob.curveNo2FloatDVNo(end,2);
-    settings.curveEnd(:) = [settings.curveStart(2:end), xval(fDVNo)];
   end
   
   
@@ -561,9 +560,19 @@ function [c,ceq,dc,dceq] = getNonLinearConstraints(xval,prob,options)
   elseif strcmpi(options.method,'bound') && options.floating
     % Evaluate bound constraints
     for curveNo = 1:prob.nCurves
-      sx1 = xval(prob.curveNo2FloatDVNo(curveNo,1));
-      sx2 = xval(prob.curveNo2FloatDVNo(curveNo,2));
-      pwf = getPointWeightsForCurveInterval(prob.sxPoints,sx1,sx2,options.beta);
+      x1 = xval(prob.curveNo2FloatDVNo(curveNo,1));
+      x2 = xval(prob.curveNo2FloatDVNo(curveNo,2));
+      sx1 = prob.sx(x1);
+      sx2 = prob.sx(x2);
+%      pwf = getPointWeightsForCurveInterval(prob.sxPoints,sx1,sx2,options.beta); % get point weight factor
+      if curveNo ~= 1 && curveNo~=prob.nCurves
+        pwf = getPointWeightsForCurveInterval(prob.sxPoints,sx1,sx2,options.beta); % get point weight factor
+      elseif curveNo == 1
+        pwf = getFixedFloatingStartPointWeightsForCurveInterval(prob.sxPoints,sx2,options.beta); % get point weight factor
+      elseif curveNo==prob.nCurves
+        pwf = getFixedFloatingEndPointWeightsForCurveInterval(prob.sxPoints,sx1,options.beta); % get point weight factor
+      end
+      
       for pNo = 1:options.nP
         x = options.points(pNo,2);
         y = options.points(pNo,1);
@@ -696,8 +705,8 @@ function [dc,dceq] = getNonLinearConstraintsDSA(xval,c,ceq,prob,options)
           dc(prob.curveNo2DVNo{curveNo}(1+orderNo),cNo+1) = -x^orderNo;
         end
         % add gradient for the bound variable
-        dc(prob.nCurveDV+curveNo,cNo) = -1;
-        dc(prob.nCurveDV+curveNo,cNo+1) = -1;
+        dc(prob.curveNo2BoundDVNo(curveNo),cNo) = -1;
+        dc(prob.curveNo2BoundDVNo(curveNo),cNo+1) = -1;
         % update constraint counter for the second constraint
         cNo = cNo + 1;
       end
@@ -705,11 +714,27 @@ function [dc,dceq] = getNonLinearConstraintsDSA(xval,c,ceq,prob,options)
   elseif strcmpi(options.method,'bound') && options.floating
     % Evaluate bound constraints
     for curveNo = 1:prob.nCurves
-      sx1 = prob.sx(xval(prob.curveNo2FloatDVNo(curveNo,1))); % Get normalized start coordinate
-      sx2 = prob.sx(xval(prob.curveNo2FloatDVNo(curveNo,2))); % Get normalized end coordinate
+      x1 = xval(prob.curveNo2FloatDVNo(curveNo,1));
+      x2 = xval(prob.curveNo2FloatDVNo(curveNo,2));
+      sx1 = prob.sx(x1);
+      sx2 = prob.sx(x2);
       pwf = getPointWeightsForCurveInterval(prob.sxPoints,sx1,sx2,options.beta); % get point weight factor
       dpwfs = getFloatingStartPointDSA(prob.sxPoints,sx1,sx2,options.beta).*prob.dsdx; % get DSA of sx1 wrt., all points
       dpwfe = getFloatingEndPointDSA(prob.sxPoints,sx1,sx2,options.beta).*prob.dsdx; % get DSA of sx2 wrt., all points
+%      if curveNo ~= 1 && curveNo~=prob.nCurves
+%        pwf = getPointWeightsForCurveInterval(prob.sxPoints,sx1,sx2,options.beta); % get point weight factor
+%        dpwfs = getFloatingStartPointDSA(prob.sxPoints,sx1,sx2,options.beta).*prob.dsdx; % get DSA of sx1 wrt., all points
+%        dpwfe = getFloatingEndPointDSA(prob.sxPoints,sx1,sx2,options.beta).*prob.dsdx; % get DSA of sx2 wrt., all points
+%      elseif curveNo == 1
+%        pwf = getFixedFloatingStartPointWeightsForCurveInterval(prob.sxPoints,sx2,options.beta); % get point weight factor
+%        dpwfs = getFixedFloatingStartPointWeightsForCurveIntervalDSA(prob.sxPoints,sx2,options.beta).*prob.dsdx; % get DSA of sx1 wrt., all points
+%        dpwfe = getFloatingEndPointDSA(prob.sxPoints,sx1,sx2,options.beta).*prob.dsdx; % get DSA of sx2 wrt., all points
+%      elseif curveNo==prob.nCurves
+%        pwf = getFixedFloatingEndPointWeightsForCurveInterval(prob.sxPoints,sx1,options.beta); % get point weight factor
+%        dpwfs = getFloatingStartPointDSA(prob.sxPoints,sx1,sx2,options.beta).*prob.dsdx; % get DSA of sx1 wrt., all points
+%        dpwfe = getFixedFloatingEndPointWeightsForCurveIntervalDSA(prob.sxPoints,sx1,options.beta).*prob.dsdx; % get DSA of sx2 wrt., all points
+%      end
+%      
       for pNo = 1:options.nP
         x = options.points(pNo,2);
         y = options.points(pNo,1);
@@ -721,12 +746,12 @@ function [dc,dceq] = getNonLinearConstraintsDSA(xval,c,ceq,prob,options)
         dc(prob.curveNo2DVNo{curveNo}(1),cNo+1) = -1*pwf(pNo);
         % loop for the remaining design variables associated with the current curveNo
         for orderNo = 1:prob.curveOrder(curveNo)
-          dc(prob.curveNo2DVNo{curveNo}(1+orderNo),cNo) = x^orderNo*pwf(pNo);
-          dc(prob.curveNo2DVNo{curveNo}(1+orderNo),cNo+1) = -x^orderNo*pwf(pNo);
+          dc(prob.curveNo2DVNo{curveNo}(1+orderNo),cNo) = (x^orderNo)*pwf(pNo);
+          dc(prob.curveNo2DVNo{curveNo}(1+orderNo),cNo+1) = -(x^orderNo)*pwf(pNo);
         end
         % add gradient for the bound variable xval()
-        dc(prob.nCurveDV+curveNo,cNo) = -1;
-        dc(prob.nCurveDV+curveNo,cNo+1) = -1;
+        dc(prob.curveNo2BoundDVNo(curveNo),cNo) = -1;
+        dc(prob.curveNo2BoundDVNo(curveNo),cNo+1) = -1;
         % add gradient from floating start point
         dc(prob.curveNo2FloatDVNo(curveNo,1),cNo) = (c(cNo)+xval(prob.curveNo2BoundDVNo(curveNo)))*dpwfs(pNo); % we have to add the bound variable, to get the "real" constraint value
         dc(prob.curveNo2FloatDVNo(curveNo,1),cNo+1) = (c(cNo+1)+xval(prob.curveNo2BoundDVNo(curveNo)))*dpwfs(pNo); % we have to add the bound variable, to get the "real" constraint value
@@ -1191,17 +1216,28 @@ function plotFit(xval,settings,points)
       fval(pNo) = fval(pNo) + xval(DVNo)*x(pNo)^orderNo;
     end
   end
-  colors = linspecer(2); %
+  
+  % get max and min values from points and fval
+  minVal = min([fval(:);points(:,1)]);
+  maxVal = max([fval(:);points(:,1)]);
+  nCurvePos = (settings.nCurves + 1);
+  curvePos = zeros(nCurvePos,1);
+  curvePos(1:end-1) = settings.curveStart(:);
+  curvePos(end) = settings.curveEnd(end);
+  colors = linspecer(3); %
   figure('Name','curvefit: Compare fit to target');
   subplot(2,1,1)
   hold on
   plot(x,fval,'color',colors(1,:));
   scatter(points(:,2),points(:,1),'o');
-  legend('Fit','target points')
+  for ii = 1:nCurvePos
+    plot([curvePos(ii),curvePos(ii)],[minVal,maxVal],'color',colors(3,:));
+  end
+  legend('Fit','Target points','Curve Start/End')
   xlabel('x')
   ylabel('f(x)')
   grid on
-  subplot(2,1,2)
+  subplot(2,1,2) % show difference in value between fit and input points
   % We can interpolate to get exact values as we know the positions have been evaluated
   fp = interp1(x,fval,points(:,2));
   plot(points(:,2),fp-points(:,1),'color',colors(2,:));
@@ -1211,6 +1247,25 @@ function plotFit(xval,settings,points)
   grid on
 end
 
+function pwf = getFixedFloatingStartPointWeightsForCurveInterval(pointPos,endpos,beta) 
+  pwf = (1-HS(endpos,pointPos,beta));
+end
+
+function dpwf = getFixedFloatingStartPointWeightsForCurveIntervalDSA(pointPos,endpos,beta) 
+  dpwf = 1-HSDSA(endpos,pointPos,beta);
+end
+
+function pwf = getFixedFloatingEndPointWeightsForCurveInterval(pointPos,startpos,beta) 
+  pwf = HS(startpos,pointPos,beta);
+end
+
+function dpwf = getFixedFloatingEndPointWeightsForCurveIntervalDSA(pointPos,startpos,beta) 
+  dpwf = HSDSA(startpos,pointPos,beta);
+end
+
+function [pwf] = getPointWeightsForCurveInterval(pointPos,startpos,endpos,beta) 
+  pwf = HS(startpos,pointPos,beta).*(1-HS(endpos,pointPos,beta));
+end
 
 function [dpwfs] = getFloatingStartPointDSA(pointPos,startpos,endpos,beta) 
   % Derivative of getPointWeightsForCurveInterval wrt., startpos
@@ -1220,14 +1275,10 @@ function [dpwfs] = getFloatingStartPointDSA(pointPos,startpos,endpos,beta)
 end
 
 function [dpwfe] = getFloatingEndPointDSA(pointPos,startpos,endpos,beta) 
-  % Derivative of getPointWeightsForCurveInterval wrt., startpos
+  % Derivative of getPointWeightsForCurveInterval wrt., endpos
   [dwfe] = HSDSA(endpos,pointPos,beta);
   [wfs] = HS(startpos,pointPos,beta);
   dpwfe = -wfs.*dwfe;
-end
-
-function [pwf] = getPointWeightsForCurveInterval(pointPos,startpos,endpos,beta) 
-  pwf = HS(startpos,pointPos,beta).*(1-HS(endpos,pointPos,beta));
 end
 
 function [wf] = HS(sx,ps,beta)
