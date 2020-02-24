@@ -636,7 +636,7 @@ function [c,ceq,dc,dceq] = getNonLinearConstraints(xval,prob,options)
         
         % f2 part  
         f2 = 0;
-        for orderNo = cc:prob.curveOrder(curveNo+1);
+        for orderNo = cc:prob.curveOrder(curveNo+1)
           DVNo = prob.curveNo2DVNo{curveNo+1}(orderNo+1);
           f2 = f2 + prob.cuvedfCof(cc,orderNo+1)*xval(DVNo)*x^(orderNo-cc);
         end
@@ -651,12 +651,12 @@ function [c,ceq,dc,dceq] = getNonLinearConstraints(xval,prob,options)
   
   % Error checks
   if cNo ~= prob.nC
-    err_msg = sprintf('Total number of non-linear in-equality constraints(%i) does not match specified(%i)',cNo,prob.nC)
+    err_msg = sprintf('Total number of non-linear in-equality constraints(%i) does not match specified(%i)',cNo,prob.nC);
     error(err_msg);
   end
   
   if ceqNo ~= prob.nCeq
-    err_msg = sprintf('Total number of non-linear equality constraints(%i) does not match specified(%i)',ceqNo,prob.nCeq)
+    err_msg = sprintf('Total number of non-linear equality constraints(%i) does not match specified(%i)',ceqNo,prob.nCeq);
     error(err_msg);
   end
   
@@ -718,22 +718,22 @@ function [dc,dceq] = getNonLinearConstraintsDSA(xval,c,ceq,prob,options)
       x2 = xval(prob.curveNo2FloatDVNo(curveNo,2));
       sx1 = prob.sx(x1);
       sx2 = prob.sx(x2);
-      pwf = getPointWeightsForCurveInterval(prob.sxPoints,sx1,sx2,options.beta); % get point weight factor
-      dpwfs = getFloatingStartPointDSA(prob.sxPoints,sx1,sx2,options.beta).*prob.dsdx; % get DSA of sx1 wrt., all points
-      dpwfe = getFloatingEndPointDSA(prob.sxPoints,sx1,sx2,options.beta).*prob.dsdx; % get DSA of sx2 wrt., all points
-%      if curveNo ~= 1 && curveNo~=prob.nCurves
-%        pwf = getPointWeightsForCurveInterval(prob.sxPoints,sx1,sx2,options.beta); % get point weight factor
-%        dpwfs = getFloatingStartPointDSA(prob.sxPoints,sx1,sx2,options.beta).*prob.dsdx; % get DSA of sx1 wrt., all points
-%        dpwfe = getFloatingEndPointDSA(prob.sxPoints,sx1,sx2,options.beta).*prob.dsdx; % get DSA of sx2 wrt., all points
-%      elseif curveNo == 1
-%        pwf = getFixedFloatingStartPointWeightsForCurveInterval(prob.sxPoints,sx2,options.beta); % get point weight factor
-%        dpwfs = getFixedFloatingStartPointWeightsForCurveIntervalDSA(prob.sxPoints,sx2,options.beta).*prob.dsdx; % get DSA of sx1 wrt., all points
-%        dpwfe = getFloatingEndPointDSA(prob.sxPoints,sx1,sx2,options.beta).*prob.dsdx; % get DSA of sx2 wrt., all points
-%      elseif curveNo==prob.nCurves
-%        pwf = getFixedFloatingEndPointWeightsForCurveInterval(prob.sxPoints,sx1,options.beta); % get point weight factor
-%        dpwfs = getFloatingStartPointDSA(prob.sxPoints,sx1,sx2,options.beta).*prob.dsdx; % get DSA of sx1 wrt., all points
-%        dpwfe = getFixedFloatingEndPointWeightsForCurveIntervalDSA(prob.sxPoints,sx1,options.beta).*prob.dsdx; % get DSA of sx2 wrt., all points
-%      end
+%       pwf = getPointWeightsForCurveInterval(prob.sxPoints,sx1,sx2,options.beta); % get point weight factor
+%       dpwfs = getFloatingStartPointDSA(prob.sxPoints,sx1,sx2,options.beta).*prob.dsdx; % get DSA of sx1 wrt., all points
+%       dpwfe = getFloatingEndPointDSA(prob.sxPoints,sx1,sx2,options.beta).*prob.dsdx; % get DSA of sx2 wrt., all points
+     if curveNo ~= 1 && curveNo~=prob.nCurves
+       pwf = getPointWeightsForCurveInterval(prob.sxPoints,sx1,sx2,options.beta); % get point weight factor
+       dpwfs = getFloatingStartPointDSA(prob.sxPoints,sx1,sx2,options.beta).*prob.dsdx; % get DSA of sx1 wrt., all points
+       dpwfe = getFloatingEndPointDSA(prob.sxPoints,sx1,sx2,options.beta).*prob.dsdx; % get DSA of sx2 wrt., all points
+     elseif curveNo == 1
+       pwf = getFixedFloatingStartPointWeightsForCurveInterval(prob.sxPoints,sx2,options.beta); % get point weight factor
+       dpwfs = getFixedFloatingStartPointWeightsForCurveIntervalDSA(prob.sxPoints,sx2,options.beta).*prob.dsdx; % get DSA of sx1 wrt., all points
+       dpwfe = getFloatingEndPointDSA(prob.sxPoints,sx1,sx2,options.beta).*prob.dsdx; % get DSA of sx2 wrt., all points
+     elseif curveNo==prob.nCurves
+       pwf = getFixedFloatingEndPointWeightsForCurveInterval(prob.sxPoints,sx1,options.beta); % get point weight factor
+       dpwfs = getFloatingStartPointDSA(prob.sxPoints,sx1,sx2,options.beta).*prob.dsdx; % get DSA of sx1 wrt., all points
+       dpwfe = getFixedFloatingEndPointWeightsForCurveIntervalDSA(prob.sxPoints,sx1,options.beta).*prob.dsdx; % get DSA of sx2 wrt., all points
+     end
 %      
       for pNo = 1:options.nP
         x = options.points(pNo,2);
@@ -819,7 +819,7 @@ function [dc,dceq] = getNonLinearConstraintsDSA(xval,c,ceq,prob,options)
         end
         
         % f2 part  
-        for orderNo = cc:prob.curveOrder(curveNo+1);
+        for orderNo = cc:prob.curveOrder(curveNo+1)
           DVNo = prob.curveNo2DVNo{curveNo+1}(orderNo+1);
           dceq(DVNo,ceqNo) = -prob.cuvedfCof(cc,orderNo+1)*x^(orderNo-cc);
         end
@@ -923,7 +923,7 @@ function [A,b,Aeq,beq] = getLinearConstraints(prob,options)
         % f2 part  
         DVNo = prob.curveNo2DVNo{curveNo+1}(1);
         Aeq(AeqNo,DVNo) = 0;
-        for orderNo = cc:prob.curveOrder(curveNo+1);
+        for orderNo = cc:prob.curveOrder(curveNo+1)
           DVNo = prob.curveNo2DVNo{curveNo+1}(orderNo+1);
           Aeq(AeqNo,DVNo) = - prob.cuvedfCof(cc,orderNo+1)*x^(orderNo-cc);
         end
@@ -1007,7 +1007,7 @@ function [A,b,Aeq,beq] = getLinearConstraints(prob,options)
     
     % Lower and upper bounds on points
     if ~isempty(options.pointlb) || ~isempty(options.pointub)
-      for pNo = 1:options.nP;
+      for pNo = 1:options.nP
         xTarget = options.points(pNo,2);
         curveNo = prob.pointNo2CurveNo(pNo);
         
